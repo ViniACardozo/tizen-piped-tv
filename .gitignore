@@ -1,0 +1,7 @@
+node_modules/
+package-lock.json
+*.png
+npm_*.py
+npm_session.json
+npm_signup_state.json
+test/

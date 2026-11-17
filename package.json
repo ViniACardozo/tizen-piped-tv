@@ -1,0 +1,27 @@
+{
+  "name": "tizen-piped-tv",
+  "appName": "Piped TV",
+  "version": "1.0.0",
+  "description": "YouTube sem anúncio via Piped, com UI para controle remoto e avc1 forçado. Modulo TizenBrew.",
+  "packageType": "app",
+  "appPath": "index.html",
+  "keys": [
+    "MediaPlayPause",
+    "MediaPlay",
+    "MediaPause",
+    "MediaStop",
+    "MediaFastForward",
+    "MediaRewind",
+    "MediaTrackNext",
+    "MediaTrackPrevious",
+    "ColorF0Red",
+    "ColorF1Green",
+    "ColorF2Yellow",
+    "ColorF3Blue"
+  ],
+  "author": "Kai",
+  "repository": {
+    "url": "https://github.com/ViniACardozo/tizen-piped-tv"
+  },
+  "license": "GPL-3.0-only"
+}
