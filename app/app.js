@@ -1,8 +1,9 @@
-/* Piped TV v1.1.0 - modulo TizenBrew. YouTube sem anuncio via Piped. */
+/* Piped TV v1.2.0 - modulo TizenBrew. Visual YouTube, proxy CORS, player estavel. */
 (function () {
   'use strict';
 
   var APP = '#app';
+  var CACHE_KEY = 'pipedtv_cache';
 
   var DEFAULTS = {
     instances: [
@@ -16,8 +17,15 @@
     instance: 0,
     region: 'BR',
     codecPref: 'avc1',
-    maxHeight: 720
+    maxHeight: 720,
+    useProxies: true
   };
+
+  var PROXIES = [
+    { name: 'direto', build: function (u) { return u; } },
+    { name: 'allorigins', build: function (u) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); } },
+    { name: 'corsproxy', build: function (u) { return 'https://corsproxy.io/?' + encodeURIComponent(u); } }
+  ];
 
   var AVC_COMBINED_ITAGS = { 5: 240, 18: 360, 34: 360, 35: 480, 59: 480, 82: 360, 83: 480, 84: 720, 85: 1080, 22: 720, 37: 1080 };
   var ITAG_HEIGHT = {
@@ -46,6 +54,7 @@
   var videoEl = null;
   var lastError = '';
   var lastDiag = [];
+  var offlineMode = false;
 
   /* ---------------- helpers ---------------- */
 
@@ -60,7 +69,7 @@
   function fmtViews(n) {
     n = Number(n) || 0;
     if (n >= 1e9) return (n / 1e9).toFixed(1) + ' Bi';
-    if (n >= 1e6) return (n / 1e6).toFixed(1) + ' Mi';
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + ' mi';
     if (n >= 1e3) return (n / 1e3).toFixed(0) + ' mil';
     return String(n);
   }
@@ -94,6 +103,14 @@
     try { localStorage.setItem('pipedtv', JSON.stringify(state)); } catch (e) {}
   }
 
+  function cacheGet() {
+    try { return JSON.parse(localStorage.getItem(CACHE_KEY) || 'null'); } catch (e) { return null; }
+  }
+
+  function cacheSet(items) {
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify({ t: Date.now(), items: items })); } catch (e) {}
+  }
+
   function hostOf(i) {
     return String(state.instances[i] || '').replace(/^https?:\/\//, '').replace(/\/+$/, '');
   }
@@ -111,50 +128,61 @@
 
   function setView(v) { view = v; }
 
-  /* ---------------- API ---------------- */
+  /* ---------------- network ---------------- */
 
-  function fetchJSON(host, path) {
-    var url = 'https://' + host + path;
+  function getJSON(url, timeout) {
     return new Promise(function (resolve, reject) {
       var done = false;
       var timer = setTimeout(function () {
         if (done) return;
         done = true;
         reject(new Error('timeout'));
-      }, 12000);
+      }, timeout || 8000);
 
-      fetch(url, { mode: 'cors', credentials: 'omit' }).then(function (r) {
+      fetch(url, { mode: 'cors', credentials: 'omit', cache: 'no-store' }).then(function (r) {
         if (done) return;
-        if (!r.ok) {
-          done = true; clearTimeout(timer);
-          reject(new Error('HTTP ' + r.status));
-          return;
-        }
-        return r.json().then(function (j) {
+        if (!r.ok) { done = true; clearTimeout(timer); reject(new Error('HTTP ' + r.status)); return; }
+        return r.text().then(function (txt) {
           if (done) return;
           done = true; clearTimeout(timer);
-          if (j && j.error) {
-            var e = new Error(BOTWALL_RE.test(j.error) ? 'botwall' : String(j.error).slice(0, 120));
-            e.botwall = BOTWALL_RE.test(j.error);
-            reject(e);
-          } else {
-            resolve(j);
-          }
+          try { resolve(JSON.parse(txt)); } catch (e) { reject(new Error('resposta invalida')); }
         });
       }).catch(function (e) {
         if (done) return;
         done = true; clearTimeout(timer);
-        reject(new Error(e && e.message ? e.message : 'falha de rede'));
+        reject(new Error('rede: ' + (e && e.message ? e.message : 'falhou')));
       });
+    });
+  }
+
+  function getJSONvia(target, timeout) {
+    var proxies = state.useProxies ? PROXIES : [PROXIES[0]];
+    var errors = [];
+    return new Promise(function (resolve, reject) {
+      var i = 0;
+      function next() {
+        if (i >= proxies.length) {
+          var e = new Error(errors.join(' / '));
+          e.details = errors;
+          reject(e);
+          return;
+        }
+        var p = proxies[i++];
+        getJSON(p.build(target), timeout).then(function (j) {
+          resolve({ data: j, via: p.name });
+        }).catch(function (err) {
+          errors.push(p.name + ': ' + err.message);
+          next();
+        });
+      }
+      next();
     });
   }
 
   function apiAny(path) {
     var order = [];
     var i;
-    for (i = 0; i < state.instances.length; i++) {
-      order.push((state.instance + i) % state.instances.length);
-    }
+    for (i = 0; i < state.instances.length; i++) order.push((state.instance + i) % state.instances.length);
     var errors = [];
     return new Promise(function (resolve, reject) {
       var idx = 0;
@@ -167,12 +195,19 @@
         }
         var ii = order[idx++];
         var host = hostOf(ii);
-        fetchJSON(host, path).then(function (data) {
+        loadingText('Testando ' + host + '...');
+        getJSONvia('https://' + host + path, 7000).then(function (res) {
+          var j = res.data;
+          if (j && j.error) {
+            errors.push(host + ': ' + String(j.error).slice(0, 80));
+            next();
+            return;
+          }
           state.instance = ii;
           saveState();
-          resolve({ data: data, host: host });
+          resolve({ data: j, host: host, via: res.via });
         }).catch(function (err) {
-          errors.push(host + ': ' + (err.message || 'erro'));
+          errors.push(host + ': ' + err.message);
           next();
         });
       }
@@ -180,21 +215,35 @@
     });
   }
 
-  /* ---------------- shell ---------------- */
+  var loadingEl = null;
+  function loadingText(t) {
+    if (loadingEl) loadingEl.textContent = t;
+  }
 
-  function shell(inner) {
-    var top = '<div class="topbar">' +
-      '<div class="brand">Piped<span class="accent">TV</span></div>' +
-      '<span class="badge">' + esc(instanceHost()) + '</span>' +
-      '<span class="meta">' + esc(state.region) + '</span>' +
+  /* ---------------- shell (visual YouTube) ---------------- */
+
+  function shell(inner, opts) {
+    opts = opts || {};
+    return '<div class="top">' +
+      '<div class="logo"><span class="playicon">&#9654;</span><span class="wordmark">Piped<em>TV</em></span></div>' +
+      '<div class="topright">' +
+      '<span class="chip">' + esc(instanceHost()) + '</span>' +
+      '<span class="chip">' + esc(state.region) + '</span>' +
+      '</div>' +
+      '</div>' +
+      '<div class="chips">' +
+      '<button class="pill focusable" data-action="home">Em alta</button>' +
+      '<button class="pill focusable" data-action="search">Buscar</button>' +
+      '<button class="pill focusable" data-action="settings">Ajustes</button>' +
+      '<button class="pill focusable" data-action="diag">Diagnostico</button>' +
+      '</div>' +
+      inner +
+      '<div class="footer">' +
+      '<span><i class="k red"></i>ajustes</span>' +
+      '<span><i class="k green"></i>buscar</span>' +
+      '<span><i class="k yellow"></i>inicio</span>' +
+      '<span><i class="k blue"></i>diagnostico</span>' +
       '</div>';
-    var hints = '<div class="hints">' +
-      '<span class="hint"><b class="dot" style="background:#e74c3c"></b> ajustes</span>' +
-      '<span class="hint"><b class="dot" style="background:#2ecc71"></b> buscar</span>' +
-      '<span class="hint"><b class="dot" style="background:#f1c40f"></b> inicio</span>' +
-      '<span class="hint"><b class="dot" style="background:#3498db"></b> diagnostico</span>' +
-      '</div>';
-    return top + inner + hints;
   }
 
   /* ---------------- views ---------------- */
@@ -206,49 +255,49 @@
     }
     $(APP).innerHTML = shell(
       '<div class="status">' +
-      '<div class="icon">' + icon + '</div>' +
-      '<div class="msg">' + esc(msg) + '</div>' +
-      (detail ? '<div class="detail">' + esc(detail) + '</div>' : '') +
-      '<div class="actions">' + act + '</div>' +
+      '<div class="statusicon">' + icon + '</div>' +
+      '<div class="statusmsg">' + esc(msg) + '</div>' +
+      (detail ? '<div class="statusdetail" id="loadingline">' + esc(detail) + '</div>' : '') +
+      '<div class="statusactions">' + act + '</div>' +
       '</div>'
     );
+    loadingEl = $('#loadingline');
     refreshFocus();
   }
 
   function cardHtml(item, i) {
     var id = videoIdOf(item.url || item.id);
-    var sub = [];
-    if (item.uploaderName) sub.push(esc(item.uploaderName));
-    if (item.views != null) sub.push(fmtViews(item.views) + ' views');
     var thumb = item.thumbnail || '';
     if (thumb && thumb.indexOf('//') === 0) thumb = 'https:' + thumb;
+    var meta = [];
+    if (item.uploaderName) meta.push(esc(item.uploaderName));
+    if (item.views != null) meta.push(fmtViews(item.views) + ' views');
     return '<div class="card focusable" data-action="play" data-id="' + esc(id) + '" data-idx="' + i + '">' +
       '<div class="thumb">' + (thumb ? '<img loading="lazy" src="' + esc(thumb) + '">' : '') +
       (item.duration ? '<span class="dur">' + fmtDur(item.duration) + '</span>' : '') + '</div>' +
-      '<div class="title">' + esc(item.title || 'Sem titulo') + '</div>' +
-      '<div class="sub">' + sub.join(' | ') + '</div>' +
-      '</div>';
+      '<div class="row">' +
+      '<div class="avatar">' + esc((item.uploaderName || '?').charAt(0).toUpperCase()) + '</div>' +
+      '<div class="txt"><div class="title">' + esc(item.title || 'Sem titulo') + '</div>' +
+      '<div class="meta">' + meta.join(' &middot; ') + '</div></div>' +
+      '</div></div>';
   }
 
   function renderTrending() {
     $(APP).innerHTML = shell(
-      '<div class="section">' +
-      '<div class="rowlabel">Em alta' + (list.length ? ' (' + list.length + ')' : '') + '</div>' +
-      '<div class="cards">' + list.map(cardHtml).join('') + '</div>' +
-      '</div>'
+      (offlineMode ? '<div class="banner">Sem rede: mostrando os ultimos resultados salvos.</div>' : '') +
+      '<div class="content"><div class="rowlabel">Em alta' + (list.length ? ' &middot; ' + list.length : '') + '</div>' +
+      '<div class="cards">' + list.map(cardHtml).join('') + '</div></div>'
     );
     refreshFocus();
   }
 
   function renderSearch() {
     $(APP).innerHTML = shell(
-      '<div class="section">' +
-      '<div class="rowlabel">Buscar</div>' +
-      '<div class="searchbar">' +
-      '<input class="searchinput focusable" id="searchq" type="text" placeholder="digite e aperte OK" value="' + esc(currentQuery) + '">' +
-      '<button class="btn focusable" data-action="do-search">Buscar</button>' +
-      '</div>' +
-      (list.length ? '<div class="rowlabel">Resultados (' + list.length + ')</div><div class="cards">' + list.map(cardHtml).join('') + '</div>' : '<div class="detail">Sem resultados.</div>') +
+      '<div class="content">' +
+      '<div class="searchrow">' +
+      '<input class="searchinput focusable" id="searchq" type="text" placeholder="Buscar no YouTube" value="' + esc(currentQuery) + '">' +
+      '<button class="btn focusable" data-action="do-search">Buscar</button></div>' +
+      (list.length ? '<div class="rowlabel">Resultados &middot; ' + list.length + '</div><div class="cards">' + list.map(cardHtml).join('') + '</div>' : '<div class="statusdetail">Aperte Buscar para pesquisar.</div>') +
       '</div>'
     );
     refreshFocus();
@@ -266,22 +315,24 @@
     for (var r = 0; r < regions.length; r++) {
       regBtns += '<button class="opt focusable' + (state.region === regions[r] ? ' active' : '') + '" data-action="set-region" data-v="' + regions[r] + '">' + regions[r] + '</button>';
     }
-    var codecBtns = '<button class="opt focusable' + (state.codecPref === 'avc1' ? ' active' : '') + '" data-action="set-codec" data-v="avc1">avc1</button>' +
-      '<button class="opt focusable' + (state.codecPref === 'any' ? ' active' : '') + '" data-action="set-codec" data-v="any">qualquer</button>';
+    var codecBtns = '<button class="opt focusable' + (state.codecPref === 'avc1' ? ' active' : '') + '" data-action="set-codec" data-v="avc1">avc1 (estavel)</button>' +
+      '<button class="opt focusable' + (state.codecPref === 'any' ? ' active' : '') + '" data-action="set-codec" data-v="any">qualquer (qualidade)</button>';
     var hBtns = '';
     var hs = [480, 720, 1080];
     for (var h = 0; h < hs.length; h++) {
       hBtns += '<button class="opt focusable' + (Number(state.maxHeight) === hs[h] ? ' active' : '') + '" data-action="set-max" data-v="' + hs[h] + '">' + hs[h] + 'p</button>';
     }
+    var proxyBtns = '<button class="opt focusable' + (state.useProxies ? ' active' : '') + '" data-action="set-proxy" data-v="1">ligado</button>' +
+      '<button class="opt focusable' + (!state.useProxies ? ' active' : '') + '" data-action="set-proxy" data-v="0">desligado</button>';
 
     $(APP).innerHTML = shell(
-      '<div class="settings">' +
+      '<div class="content settings">' +
       '<div class="field"><div class="flabel">Instancia</div><div class="opts">' + instBtns + '</div></div>' +
+      '<div class="field"><div class="flabel">Proxy CORS (quando a TV bloqueia)</div><div class="opts">' + proxyBtns + '</div></div>' +
       '<div class="field"><div class="flabel">Regiao</div><div class="opts">' + regBtns + '</div></div>' +
       '<div class="field"><div class="flabel">Codec</div><div class="opts">' + codecBtns + '</div></div>' +
       '<div class="field"><div class="flabel">Qualidade maxima</div><div class="opts">' + hBtns + '</div></div>' +
-      '<div class="field"><button class="btn focusable" data-action="diagnose">Testar rede</button>' +
-      '<button class="btn focusable" data-action="home">Voltar</button></div>' +
+      '<div class="field"><button class="btn focusable" data-action="home">Voltar</button></div>' +
       '</div>'
     );
     refreshFocus();
@@ -294,13 +345,13 @@
         '<span class="' + (lastDiag[i].ok ? 'diagok' : 'diagfail') + '">' + esc(lastDiag[i].status) + '</span></div>';
     }
     $(APP).innerHTML = shell(
-      '<div class="settings">' +
-      '<div class="flabel">Diagnostico de rede</div>' +
-      (rows || '<div class="detail">Pressione "Testar agora".</div>') +
-      '<div class="field" style="margin-top:3vh">' +
+      '<div class="content settings">' +
+      '<div class="flabel">Diagnostico</div>' +
+      (rows || '<div class="statusdetail">Aperte Testar agora.</div>') +
+      '<div class="field" style="margin-top:2vh">' +
       '<button class="btn focusable" data-action="diagnose">Testar agora</button>' +
       '<button class="btn focusable" data-action="home">Voltar</button></div>' +
-      (lastError ? '<div class="detail">Ultimo erro: ' + esc(lastError) + '</div>' : '') +
+      (lastError ? '<div class="statusdetail">Ultimo erro: ' + esc(lastError) + '</div>' : '') +
       '</div>'
     );
     refreshFocus();
@@ -324,11 +375,11 @@
   }
 
   function buildCandidates(data) {
-    var out = [];
     var vids = data.videoStreams || [];
     var combined = vids.filter(function (s) { return !s.videoOnly && /video\//i.test(s.mimeType || ''); });
     var hls = data.hls ? [{ url: data.hls, label: 'HLS', kind: 'hls' }] : [];
     var maxH = Number(state.maxHeight) || 720;
+    var out = [];
 
     var pool = state.codecPref === 'avc1' ? combined.filter(isAvcCombined) : combined;
     if (!pool.length) pool = combined;
@@ -346,20 +397,21 @@
   function renderPlayer() {
     var cur = playerCandidates[playerIndex];
     $(APP).innerHTML = shell(
-      '<div class="player-wrap">' +
-      '<video id="pv" playsinline autoplay></video>' +
-      '<div class="player-overlay">' +
+      '<div class="player">' +
+      '<video id="pv" playsinline autoplay controls></video>' +
+      '<div class="pbar">' +
       '<div class="ptitle">' + esc(currentVideo && currentVideo.title || '') + '</div>' +
       (cur ? '<span class="pmeta">' + esc(cur.label) + '</span>' : '') +
-      '<button class="btn focusable" data-action="cycle-quality">Qualidade</button>' +
-      '<button class="btn focusable" data-action="instance-next">Instancia</button>' +
-      '<button class="btn focusable" data-action="home">Voltar</button>' +
+      '<button class="btn small focusable" data-action="cycle-quality">Qualidade</button>' +
+      '<button class="btn small focusable" data-action="instance-next">Instancia</button>' +
+      '<button class="btn small focusable" data-action="home">Voltar</button>' +
       '</div></div>'
     );
     videoEl = $('#pv');
     videoEl.addEventListener('error', function () {
-      showOSD('Falha no stream. Troque a instancia (azul).', 2600);
+      showOSD('Falha no video. Azul troca instancia, OK abre opcoes.', 2600);
     });
+    videoEl.addEventListener('waiting', function () { showOSD('Carregando video...', 900); });
     refreshFocus();
     retryTarget = null;
     attachStream(cur);
@@ -377,9 +429,7 @@
         hlsObj = new window.Hls({ maxBufferLength: 30 });
         hlsObj.loadSource(cand.url);
         hlsObj.attachMedia(videoEl);
-        hlsObj.on(window.Hls.Events.ERROR, function (e, d) {
-          if (d && d.fatal) showOSD('Erro HLS', 2000);
-        });
+        hlsObj.on(window.Hls.Events.ERROR, function (e, d) { if (d && d.fatal) showOSD('Erro HLS', 2000); });
       } else {
         videoEl.src = cand.url;
         videoEl.play();
@@ -395,14 +445,16 @@
   function loadTrending() {
     var tok = ++loadingToken;
     setView('status');
-    renderStatus('<div class="spin"></div>', 'Carregando...', instanceHost(), []);
+    offlineMode = false;
+    renderStatus('<div class="spin"></div>', 'Carregando', instanceHost(), []);
     apiAny('/trending?region=' + encodeURIComponent(state.region)).then(function (res) {
       if (tok !== loadingToken) return;
       list = res.data || [];
       lastError = '';
+      cacheSet(list);
       setView('trending');
       if (!list.length) {
-        renderStatus('<div class="big">?</div>', 'A instancia respondeu sem itens.', res.host + ' - regiao ' + state.region, [
+        renderStatus('<div class="big">?</div>', 'Instancia respondeu vazia', res.host + ' via ' + res.via, [
           { label: 'Diagnostico', action: 'diag' }, { label: 'Ajustes', action: 'settings' }
         ]);
       } else {
@@ -411,8 +463,17 @@
     }).catch(function (e) {
       if (tok !== loadingToken) return;
       lastError = (e.message || 'erro') + ' :: ' + ((e.details || []).join(' | '));
+      var cached = cacheGet();
+      if (cached && cached.items && cached.items.length) {
+        list = cached.items;
+        offlineMode = true;
+        setView('trending');
+        renderTrending();
+        showOSD('Sem rede. Cache de ' + new Date(cached.t).toLocaleString() + '.', 3000);
+        return;
+      }
       setView('status');
-      renderStatus('<div class="big">!</div>', 'Nenhuma instancia respondeu.', 'Rede/CORS bloqueado ou instancias fora. Abra o diagnostico (azul).', [
+      renderStatus('<div class="big">!</div>', 'Sem conexao com o Piped', 'A TV bloqueou a rede. Abra o diagnostico (azul) e veja o erro de cada instancia.', [
         { label: 'Diagnostico', action: 'diag' }, { label: 'Ajustes', action: 'settings' }
       ]);
     });
@@ -420,11 +481,11 @@
 
   function doSearch(q) {
     q = String(q || '').trim();
-    if (!q) return;
+    if (!q) { showOSD('Digite algo para buscar.', 1500); return; }
     currentQuery = q;
     var tok = ++loadingToken;
     setView('status');
-    renderStatus('<div class="spin"></div>', 'Buscando...', q, []);
+    renderStatus('<div class="spin"></div>', 'Buscando', q, []);
     apiAny('/search?q=' + encodeURIComponent(q) + '&filter=videos').then(function (res) {
       if (tok !== loadingToken) return;
       list = (res.data && res.data.items) || [];
@@ -434,7 +495,7 @@
       if (tok !== loadingToken) return;
       lastError = (e.message || 'erro') + ' :: ' + ((e.details || []).join(' | '));
       setView('status');
-      renderStatus('<div class="big">!</div>', 'Busca falhou.', 'Veja o diagnostico (azul).', [
+      renderStatus('<div class="big">!</div>', 'Busca falhou', 'Veja o diagnostico (azul).', [
         { label: 'Diagnostico', action: 'diag' }, { label: 'Voltar', action: 'home' }
       ]);
     });
@@ -449,7 +510,7 @@
     retryTarget = id;
     var tok = ++loadingToken;
     setView('status');
-    renderStatus('<div class="spin"></div>', 'Abrindo video...', esc(item.title || ''), []);
+    renderStatus('<div class="spin"></div>', 'Abrindo', esc(item.title || ''), []);
     apiAny('/streams/' + id).then(function (res) {
       if (tok !== loadingToken) return;
       var cands = buildCandidates(res.data);
@@ -463,7 +524,7 @@
       if (tok !== loadingToken) return;
       lastError = e.message || 'erro';
       setView('status');
-      renderStatus('<div class="big">!</div>', 'Nao abriu o video.', e.message || '', [
+      renderStatus('<div class="big">!</div>', 'Nao abriu o video', e.message || '', [
         { label: 'Trocar instancia', action: 'instance-next' }, { label: 'Voltar', action: 'home' }
       ]);
     });
@@ -473,25 +534,28 @@
     setView('diag');
     lastDiag = [];
     renderDiag();
-    var i = 0;
-    function step() {
-      if (i >= state.instances.length) {
-        renderDiag();
-        return;
-      }
-      var host = hostOf(i);
-      lastDiag.push({ host: host, ok: false, status: 'testando...' });
+    var steps = [{ host: 'jsdelivr (internet)', url: 'https://cdn.jsdelivr.net/gh/ViniACardozo/tizen-piped-tv@v1.2.0/package.json' }];
+    var i;
+    for (i = 0; i < state.instances.length; i++) steps.push({ host: hostOf(i), url: 'https://' + hostOf(i) + '/trending?region=BR' });
+
+    lastDiag = steps.map(function (s) { return { host: s.host, ok: false, status: 'aguardando' }; });
+    renderDiag();
+
+    function run(pos) {
+      if (pos >= steps.length) { lastDiag[0].status = lastDiag[0].status; renderDiag(); return; }
+      lastDiag[pos].status = 'testando...';
       renderDiag();
-      var pos = i;
-      fetchJSON(host, '/trending?region=BR').then(function (j) {
-        lastDiag[pos] = { host: host, ok: true, status: 'OK (' + ((j || []).length) + ' itens)' };
-        i++; setTimeout(step, 200);
+      getJSONvia(steps[pos].url, 7000).then(function (res) {
+        lastDiag[pos] = { host: steps[pos].host, ok: true, status: 'OK via ' + res.via };
+        renderDiag();
+        setTimeout(function () { run(pos + 1); }, 150);
       }).catch(function (e) {
-        lastDiag[pos] = { host: host, ok: false, status: e.message || 'erro' };
-        i++; setTimeout(step, 200);
+        lastDiag[pos] = { host: steps[pos].host, ok: false, status: e.message.slice(0, 60) };
+        renderDiag();
+        setTimeout(function () { run(pos + 1); }, 150);
       });
     }
-    step();
+    run(0);
   }
 
   /* ---------------- focus ---------------- */
@@ -561,6 +625,7 @@
         var q = $('#searchq');
         doSearch(q ? q.value : currentQuery);
         break;
+      case 'search': setView('search'); renderSearch(); break;
       case 'settings': setView('settings'); renderSettings(); break;
       case 'diag': diagnose(); break;
       case 'diagnose': diagnose(); break;
@@ -586,6 +651,7 @@
         break;
       case 'set-codec': state.codecPref = data.v; saveState(); renderSettings(); break;
       case 'set-max': state.maxHeight = Number(data.v); saveState(); renderSettings(); break;
+      case 'set-proxy': state.useProxies = data.v === '1'; saveState(); renderSettings(); break;
     }
   }
 
@@ -620,11 +686,7 @@
     if (kc === KEY.BACK || kc === KEY.ESC) {
       e.preventDefault();
       destroyHls();
-      if (view === 'player' || view === 'settings' || view === 'diag' || view === 'search') {
-        list = []; setView('trending'); loadTrending();
-      } else {
-        setView('trending'); loadTrending();
-      }
+      list = []; setView('trending'); loadTrending();
       return;
     }
 
@@ -643,7 +705,8 @@
       e.preventDefault();
       if (!list.length || listIndex < 0) return;
       listIndex += (kc === KEY.NEXT ? 1 : -1);
-      if (listIndex < 0 || listIndex >= list.length) { listIndex = Math.max(0, Math.min(listIndex, list.length - 1)); return; }
+      if (listIndex < 0) listIndex = 0;
+      if (listIndex >= list.length) listIndex = list.length - 1;
       openVideo(list[listIndex]);
     }
   }
