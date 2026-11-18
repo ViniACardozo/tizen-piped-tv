@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  var VER = '2.5.9';
+  var VER = '2.5.11';
   function vnum(v) { var p = v.split('.'); return Number(p[0]) * 1000000 + Number(p[1]) * 1000 + Number(p[2] || 0); }
   if ((window.__vtNum || 0) >= vnum(VER)) return;
   window.__vtNum = vnum(VER);
@@ -140,7 +140,13 @@
 
       var le = document.querySelector('ytlr-logo-entity');
       var r = le ? le.getBoundingClientRect() : null;
-      if (!r || r.width < 10 || document.querySelector('.html5-video-player')) {
+      var pl = document.querySelector('.html5-video-player');
+      var playing = false;
+      if (pl) {
+        var pr = pl.getBoundingClientRect();
+        playing = pr.width > window.innerWidth * 0.6 && pr.height > window.innerHeight * 0.6 && getComputedStyle(pl).display !== 'none';
+      }
+      if (!r || r.width < 10 || playing) {
         if (cover) cover.style.display = 'none';
         return;
       }
