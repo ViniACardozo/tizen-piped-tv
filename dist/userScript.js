@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  var VER = '2.5.6';
+  var VER = '2.5.7';
   function vnum(v) { var p = v.split('.'); return Number(p[0]) * 1000000 + Number(p[1]) * 1000 + Number(p[2] || 0); }
   if ((window.__vtNum || 0) >= vnum(VER)) return;
   window.__vtNum = vnum(VER);
@@ -137,16 +137,19 @@
       if (document.title !== BRAND) document.title = BRAND;
 
       var le = document.querySelector('ytlr-logo-entity');
-      if (!le) return;
-      var r = le.getBoundingClientRect();
-      if (r.width < 10) return;
+      var r = le ? le.getBoundingClientRect() : null;
+      if (!r || r.width < 10 || document.querySelector('.html5-video-player')) {
+        if (cover) cover.style.display = 'none';
+        return;
+      }
 
       if (!cover) {
         cover = document.createElement('div');
         cover.id = 'vt-brand';
-        cover.style.cssText = 'position:fixed;display:flex;align-items:center;background:#0f0f0f;z-index:2147482000;pointer-events:none';
+        cover.style.cssText = 'position:fixed;display:flex;align-items:center;background:#0f0f0f;z-index:1;pointer-events:none';
         document.body.appendChild(cover);
       }
+      cover.style.display = 'flex';
       var h = Math.round(r.height) || 40;
       var size = Math.max(18, Math.min(30, Math.round(h * 0.42)));
       cover.style.left = Math.round(r.left) + 'px';
