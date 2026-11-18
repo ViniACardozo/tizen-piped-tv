@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  var VER = '2.5.4';
+  var VER = '2.5.5';
   if (window.__vtVer === VER) return;
   window.__vtVer = VER;
   window.__vinitube = true;
@@ -171,7 +171,7 @@
       var nodes = document.querySelectorAll('span, div, p, yt-formatted-string');
       for (var i = 0; i < nodes.length; i++) {
         var n = nodes[i];
-        if (n.childElementCount > 0) continue;
+        if (n.childElementCount > 1) continue;
         var t = (n.textContent || '').trim();
         if (!t || t.length > 45) continue;
         if (!SPONSOR.test(t)) continue;
@@ -194,6 +194,7 @@
         if (done && done.style.display !== 'none') {
           done.style.display = 'none';
           done.setAttribute('data-vt-hidden', '1');
+          done.setAttribute('data-vt-lbl', t.slice(0, 20));
         }
       }
     } catch (e) {}
