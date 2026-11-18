@@ -83,7 +83,12 @@ listTargets().then(function (targets) {
         try { await send('Log.enable', {}); } catch (e) {}
         try { await send('Page.enable', {}); } catch (e) {}
 
-        if (MODE === 'eval') {
+        if (MODE === 'evalfile') {
+          var fexpr = fs.readFileSync(ARG.trim(), 'utf8');
+          var fr = await send('Runtime.evaluate', { expression: fexpr, awaitPromise: true, returnByValue: true, userGesture: true });
+          if (fr.exceptionDetails) console.log('EXCEPTION', JSON.stringify(fr.exceptionDetails).slice(0, 500));
+          else console.log('RESULT:', typeof fr.result.value === 'string' ? fr.result.value : JSON.stringify(fr.result.value));
+        } else if (MODE === 'eval') {
           var expr = ARG || '1+1';
           var r = await send('Runtime.evaluate', {
             expression: expr,
