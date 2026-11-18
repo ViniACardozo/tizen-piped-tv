@@ -3,8 +3,10 @@
 (function () {
   'use strict';
 
-  var VER = '2.5.5';
-  if (window.__vtVer === VER) return;
+  var VER = '2.5.6';
+  function vnum(v) { var p = v.split('.'); return Number(p[0]) * 1000000 + Number(p[1]) * 1000 + Number(p[2] || 0); }
+  if ((window.__vtNum || 0) >= vnum(VER)) return;
+  window.__vtNum = vnum(VER);
   window.__vtVer = VER;
   window.__vinitube = true;
 
@@ -104,7 +106,7 @@
   function splashShow() {
     if (!document.body || splash) return;
     splash = document.createElement('div');
-    splash.setAttribute('data-vt', '1');
+    splash.id = 'vt-splash';
     splash.style.cssText = 'position:fixed;left:0;top:0;right:0;bottom:0;z-index:2147483647;background:#0f0f0f;display:flex;flex-direction:column;align-items:center;justify-content:center';
     var row = document.createElement('div');
     row.style.cssText = 'display:flex;align-items:center';
@@ -141,7 +143,7 @@
 
       if (!cover) {
         cover = document.createElement('div');
-        cover.setAttribute('data-vt', '1');
+        cover.id = 'vt-brand';
         cover.style.cssText = 'position:fixed;display:flex;align-items:center;background:#0f0f0f;z-index:2147482000;pointer-events:none';
         document.body.appendChild(cover);
       }
@@ -223,6 +225,8 @@
   }
 
   function start() {
+    var old = document.querySelectorAll('[data-vt="1"]');
+    for (var i = 0; i < old.length; i++) if (old[i].parentNode) old[i].parentNode.removeChild(old[i]);
     css();
     splashShow();
     brand();
