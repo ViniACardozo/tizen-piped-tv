@@ -1,15 +1,17 @@
-/* ViniTube Player - patch injetado no YouTube TV (TizenBrew mods).
+/* ViniTube - patch para o YouTube TV (TizenBrew mods / injecao CDP).
    Bloqueia anuncio, esconde patrocinados e troca a marca para ViniTube. */
 (function () {
   'use strict';
 
-  if (window.__vinitube) return;
+  var VER = '2.5.2';
+  if (window.__vtVer === VER) return;
+  window.__vtVer = VER;
   window.__vinitube = true;
 
   var BRAND = 'ViniTube';
   var AD_FIELDS = ['adPlacements', 'playerAds', 'adSlots', 'adBreakParams', 'adParams', 'adBreakHeartbeatParams', 'playerAdParams'];
   var AD_URL = [/\/pagead\//i, /\/api\/stats\/ads/i, /\/api\/stats\/atr/i, /doubleclick\.net/i, /googleadservices/i, /\/ptracking/i, /\/adunit/i, /\/get_midroll_/i];
-  var SPONSOR = /patrocinado|sponsored|promoted|an[uú]ncio publicit/i;
+  var SPONSOR = /patrocinado|sponsored|promoted/i;
 
   function isAd(u) {
     if (!u) return false;
@@ -29,10 +31,10 @@
     return o;
   }
 
-  var parse0 = JSON.parse;
+  var jsonParse = JSON.parse;
   try {
     JSON.parse = function () {
-      var r = parse0.apply(this, arguments);
+      var r = jsonParse.apply(this, arguments);
       try { scrub(r, 0); } catch (e) {}
       return r;
     };
@@ -43,142 +45,145 @@
     try {
       var d = Object.getOwnPropertyDescriptor(window, n);
       if (d && d.get) return;
-      Object.defineProperty(window, n, { configurable: true, get: function () { return store; }, set: function (v) { try { scrub(v, 0); } catch (e) {} store = v; } });
+      Object.defineProperty(window, n, {
+        configurable: true,
+        get: function () { return store; },
+        set: function (v) { try { scrub(v, 0); } catch (e) {} store = v; }
+      });
     } catch (e) {}
   });
 
-  var f0 = window.fetch;
-  if (f0) {
+  var fetch0 = window.fetch;
+  if (fetch0) {
     window.fetch = function (inp) {
       var u = typeof inp === 'string' ? inp : (inp && inp.url) || '';
       if (isAd(u)) return Promise.resolve(new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
-      return f0.apply(this, arguments).then(function (r) {
-        try {
-          if ((r.headers.get('content-type') || '').indexOf('json') >= 0) {
-            return r.clone().text().then(function (t) {
-              var j;
-              try { j = parse0(t); } catch (e) { return r; }
-              scrub(j, 0);
-              return new Response(JSON.stringify(j), { status: r.status, statusText: r.statusText, headers: r.headers });
-            }).catch(function () { return r; });
-          }
-        } catch (e) {}
-        return r;
-      });
+      return fetch0.apply(this, arguments);
     };
   }
 
-  var o0 = XMLHttpRequest.prototype.open;
-  XMLHttpRequest.prototype.open = function (m, u) { this.__ad = isAd(u); return o0.apply(this, arguments); };
-  var s0 = XMLHttpRequest.prototype.send;
-  XMLHttpRequest.prototype.send = function () { if (this.__ad) { try { this.abort(); } catch (e) {} return; } return s0.apply(this, arguments); };
+  var xo = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function (m, u) { this.__vtAd = isAd(u); return xo.apply(this, arguments); };
+  var xs = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.send = function () { if (this.__vtAd) { try { this.abort(); } catch (e) {} return; } return xs.apply(this, arguments); };
 
+  /* ---------- css ---------- */
   function css() {
     if (document.getElementById('vt-css')) return;
+    var host = document.head || document.documentElement;
+    if (!host) return;
     var st = document.createElement('style');
     st.id = 'vt-css';
     st.textContent =
-      '.ytp-ad-module,.ytp-ad-overlay-container,.ytp-ad-image-overlay,.ytp-ad-player-overlay,.ytp-ad-text-overlay,.ytp-ad-survey,.ytp-ad-progress,.ytp-ad-skip-button-container{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important}' +
-      '.ad-showing .video-ads,.ad-showing .ytp-ad-module{display:none!important}' +
-      'ytd-display-ad-renderer,ytd-promoted-sparkles-web-renderer,ytd-ad-slot-renderer,ytm-promoted-sparkles-web-renderer{display:none!important}';
-    (document.head || document.documentElement).appendChild(st);
+      '.ytp-ad-module,.ytp-ad-overlay-container,.ytp-ad-image-overlay,.ytp-ad-player-overlay,.ytp-ad-text-overlay,.ytp-ad-survey,.ytp-ad-progress,.ytp-ad-skip-button-container{display:none!important;opacity:0!important;pointer-events:none!important}' +
+      '.ad-showing .video-ads,.ad-showing .ytp-ad-module{display:none!important}';
+    host.appendChild(st);
   }
   css();
 
-  /* ---------- splash ---------- */
-  var splash = null;
-  function logoMarkup(size) {
-    var pad = Math.round(size * 0.16);
-    return '<span style="display:inline-flex;align-items:center;justify-content:center;width:' + size + 'px;height:' + Math.round(size * 0.7) + 'px;background:#ff0000;border-radius:' + pad + 'px;color:#fff;font-size:' + Math.round(size * 0.38) + 'px;line-height:1;margin-right:' + Math.round(size * 0.2) + 'px">&#9654;</span>' +
-      '<span style="font-weight:800;letter-spacing:-0.6px;color:#fff;font-size:' + size + 'px">Vini<span style="color:#ff5c5c">Tube</span></span>';
+  /* ---------- selo ---------- */
+  function mark(size) {
+    var box = document.createElement('span');
+    box.style.cssText = 'display:inline-flex;align-items:center';
+    var tri = document.createElement('span');
+    tri.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:' + size + 'px;height:' + Math.round(size * 0.7) + 'px;background:#ff0000;border-radius:' + Math.round(size * 0.17) + 'px;color:#fff;font-size:' + Math.round(size * 0.4) + 'px;line-height:1;margin-right:' + Math.round(size * 0.22) + 'px';
+    tri.textContent = '\u25B6';
+    var word = document.createElement('span');
+    word.style.cssText = 'font:800 ' + size + 'px Roboto,Arial,sans-serif;letter-spacing:-0.6px;color:#fff;white-space:nowrap';
+    word.textContent = 'Vini';
+    var tail = document.createElement('span');
+    tail.style.color = '#ff5c5c';
+    tail.textContent = 'Tube';
+    word.appendChild(tail);
+    box.appendChild(tri);
+    box.appendChild(word);
+    return box;
   }
 
-  function showSplash() {
+  var splash = null;
+  function splashShow() {
     if (!document.body || splash) return;
     splash = document.createElement('div');
-    splash.style.cssText = 'position:fixed;left:0;top:0;right:0;bottom:0;z-index:2147483647;background:#0f0f0f;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:Roboto,Arial,sans-serif';
-    splash.innerHTML = '<div style="display:flex;align-items:center;font-size:54px">' + logoMarkup(54) + '</div>' +
-      '<div style="margin-top:30px;width:52px;height:52px;border:6px solid #242424;border-top-color:#ff0000;border-radius:50%;animation:vtspin .9s linear infinite"></div>' +
-      '<style>@keyframes vtspin{to{transform:rotate(360deg)}}</style>';
+    splash.setAttribute('data-vt', '1');
+    splash.style.cssText = 'position:fixed;left:0;top:0;right:0;bottom:0;z-index:2147483647;background:#0f0f0f;display:flex;flex-direction:column;align-items:center;justify-content:center';
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center';
+    var brandBox = mark(52);
+    row.appendChild(brandBox);
+    splash.appendChild(row);
+    var spin = document.createElement('div');
+    spin.style.cssText = 'margin-top:28px;width:52px;height:52px;border:6px solid #242424;border-top-color:#ff0000;border-radius:50%;animation:vtspin .9s linear infinite';
+    splash.appendChild(spin);
+    var kf = document.createElement('style');
+    kf.id = 'vt-kf';
+    kf.textContent = '@keyframes vtspin{to{transform:rotate(360deg)}}';
+    (document.head || document.documentElement).appendChild(kf);
     document.body.appendChild(splash);
-    setTimeout(hideSplash, 3000);
+    setTimeout(splashHide, 2800);
   }
-  function hideSplash() {
+  function splashHide() {
     if (!splash) return;
     splash.style.transition = 'opacity .4s ease';
     splash.style.opacity = '0';
-    setTimeout(function () { if (splash && splash.parentNode) splash.parentNode.removeChild(splash); splash = null; }, 450);
+    setTimeout(function () { if (splash && splash.parentNode) splash.parentNode.removeChild(splash); splash = null; }, 420);
   }
 
   /* ---------- marca ---------- */
-  function textSwap(root) {
-    if (!root) return;
-    try {
-      var w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
-      var n;
-      while ((n = w.nextNode())) {
-        if (n.nodeValue && n.nodeValue.indexOf('YouTube') >= 0) n.nodeValue = n.nodeValue.split('YouTube').join(BRAND);
-      }
-    } catch (e) {}
-  }
-
+  var cover = null;
   function brand() {
     try {
       if (document.title !== BRAND) document.title = BRAND;
 
-      var head = document.querySelector('header, [role="banner"], ytlr-tv-app-header, .header, #header, #masthead-container');
-      if (head) {
-        if (!head.getAttribute('data-vt')) {
-          head.setAttribute('data-vt', '1');
-          var marks = head.querySelectorAll('img, svg, yt-icon, .logo, [class*="logo" i]');
-          for (var i = 0; i < marks.length; i++) {
-            var m = marks[i];
-            var box = m.getBoundingClientRect();
-            if (box.width > 10 && box.width < 420 && box.left < window.innerWidth * 0.45) {
-              if (m.tagName === 'IMG' || m.tagName === 'svg' || m.tagName === 'YT-ICON') {
-                var holder = document.createElement('span');
-                holder.style.cssText = 'display:inline-flex;align-items:center;font-size:26px;vertical-align:middle';
-                holder.innerHTML = logoMarkup(26);
-                m.parentNode.insertBefore(holder, m);
-                m.style.display = 'none';
-                break;
-              }
-            }
-          }
-        }
-        textSwap(head);
+      var le = document.querySelector('ytlr-logo-entity');
+      if (!le) return;
+      var r = le.getBoundingClientRect();
+      if (r.width < 10) return;
+
+      if (!cover) {
+        cover = document.createElement('div');
+        cover.setAttribute('data-vt', '1');
+        cover.style.cssText = 'position:fixed;display:flex;align-items:center;background:#0f0f0f;z-index:2147482000;pointer-events:none';
+        document.body.appendChild(cover);
+      }
+      var h = Math.round(r.height) || 40;
+      var size = Math.max(18, Math.min(30, Math.round(h * 0.42)));
+      cover.style.left = Math.round(r.left) + 'px';
+      cover.style.top = Math.round(r.top) + 'px';
+      cover.style.height = h + 'px';
+      cover.style.minWidth = Math.round(r.width) + 'px';
+      var sig = size + '/' + Math.round(r.width);
+      if (cover.getAttribute('data-sig') !== sig) {
+        cover.setAttribute('data-sig', sig);
+        while (cover.firstChild) cover.removeChild(cover.firstChild);
+        cover.appendChild(mark(size));
       }
 
-      var links = document.querySelectorAll('a[aria-label*="YouTube" i], [aria-label="YouTube"]');
-      for (var j = 0; j < links.length; j++) {
-        links[j].setAttribute('aria-label', BRAND);
-        if (!links[j].getAttribute('data-vt')) {
-          links[j].setAttribute('data-vt', '1');
-        }
-      }
+      var lbl = document.querySelectorAll('[aria-label*="YouTube" i]');
+      for (var i = 0; i < lbl.length; i++) lbl[i].setAttribute('aria-label', BRAND);
     } catch (e) {}
   }
 
   /* ---------- patrocinados ---------- */
-  function hideSponsored() {
+  function sponsored() {
     try {
-      var all = document.querySelectorAll('span, div, p, ytlr-badge, [class*="badge" i], [class*="label" i]');
-      for (var i = 0; i < all.length; i++) {
-        var n = all[i];
+      var vw = window.innerWidth || 1920;
+      var nodes = document.querySelectorAll('span, div, p, yt-formatted-string');
+      for (var i = 0; i < nodes.length; i++) {
+        var n = nodes[i];
         if (n.childElementCount > 0) continue;
         var t = (n.textContent || '').trim();
-        if (!t || t.length > 40 || !SPONSOR.test(t)) continue;
-        var card = n.closest('ytlr-tile, ytlr-grid-tile, [class*="tile" i], [class*="card" i], [class*="item" i]');
-        if (!card) {
-          var p = n;
-          for (var k = 0; k < 6 && p; k++) {
-            p = p.parentElement;
-            if (p && p.querySelector && p.querySelector('img')) { card = p; break; }
-          }
+        if (!t || t.length < 5) continue;
+        if (!SPONSOR.test(t.slice(0, 45))) continue;
+        var p = n, hit = null;
+        for (var k = 0; k < 12 && p; k++) {
+          p = p.parentElement;
+          if (!p || p === document.body || p === document.documentElement) break;
+          var r = p.getBoundingClientRect();
+          if (r.width >= vw * 0.22 && p.querySelector('img, video')) { hit = p; break; }
         }
-        if (card && card.style.display !== 'none') {
-          card.style.display = 'none';
-          card.setAttribute('data-vt-hidden', '1');
+        if (hit && hit.style.display !== 'none') {
+          hit.style.display = 'none';
+          hit.setAttribute('data-vt-hidden', '1');
         }
       }
     } catch (e) {}
@@ -202,16 +207,16 @@
   function tick() {
     if (busy) return;
     busy = true;
-    try { playerAds(); hideSponsored(); brand(); } catch (e) {}
+    try { css(); playerAds(); sponsored(); brand(); } catch (e) {}
     busy = false;
   }
 
   function start() {
     css();
-    showSplash();
+    splashShow();
     brand();
     try { new MutationObserver(tick).observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}
-    setInterval(tick, 1200);
+    setInterval(tick, 1000);
     tick();
   }
 
