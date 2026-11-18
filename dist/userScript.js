@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  var VER = '2.5.7';
+  var VER = '2.5.8';
   function vnum(v) { var p = v.split('.'); return Number(p[0]) * 1000000 + Number(p[1]) * 1000 + Number(p[2] || 0); }
   if ((window.__vtNum || 0) >= vnum(VER)) return;
   window.__vtNum = vnum(VER);
@@ -12,6 +12,7 @@
 
   var BRAND = 'ViniTube';
   var AD_FIELDS = ['adPlacements', 'playerAds', 'adSlots', 'adBreakParams', 'adParams', 'adBreakHeartbeatParams', 'playerAdParams'];
+  var PROMO_KEY = /(adSlot|adBreak|adParams|adPlacements|displayAd|promoted|promoRenderer|promoBar|statementBanner|brandVideoShelf|primetimePromo|compactPromoted|merchandiseShelf)/i;
   var AD_URL = [/\/pagead\//i, /\/api\/stats\/ads/i, /\/api\/stats\/atr/i, /doubleclick\.net/i, /googleadservices/i, /\/ptracking/i, /\/adunit/i, /\/get_midroll_/i];
   var SPONSOR = /patrocinado|sponsored|promovido|promoted|an[uú]ncio/i;
 
@@ -27,6 +28,7 @@
     if (Array.isArray(o)) { for (var i = 0; i < o.length; i++) scrub(o[i], d + 1); return o; }
     for (var k in o) {
       if (AD_FIELDS.indexOf(k) >= 0) { try { delete o[k]; } catch (e) {} continue; }
+      if (PROMO_KEY.test(k)) { try { delete o[k]; } catch (e) {} continue; }
       var v = o[k];
       if (v && typeof v === 'object') scrub(v, d + 1);
     }
