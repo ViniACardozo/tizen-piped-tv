@@ -1,7 +1,7 @@
 {
   "name": "tizen-piped-tv",
   "appName": "Piped TV",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "YouTube sem anúncio via Piped, com UI para controle remoto e avc1 forçado. Modulo TizenBrew.",
   "packageType": "app",
   "appPath": "index.html",
