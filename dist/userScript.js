@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  var VER = '2.5.8';
+  var VER = '2.5.9';
   function vnum(v) { var p = v.split('.'); return Number(p[0]) * 1000000 + Number(p[1]) * 1000 + Number(p[2] || 0); }
   if ((window.__vtNum || 0) >= vnum(VER)) return;
   window.__vtNum = vnum(VER);
@@ -229,6 +229,18 @@
     busy = false;
   }
 
+  function beacon() {
+    try {
+      var c = null, e = document.getElementById('vt-brand');
+      if (e) {
+        var r = e.getBoundingClientRect();
+        c = [r.x | 0, r.y | 0, r.width | 0, r.height | 0, getComputedStyle(e).display, getComputedStyle(e).zIndex];
+      }
+      var d = { v: VER, t: document.title, u: location.href, h: document.querySelectorAll('[data-vt-hidden]').length, c: c, ad: !!document.querySelector('.ad-showing') };
+      fetch('http://192.168.2.102:9099/vt?d=' + encodeURIComponent(JSON.stringify(d)), { mode: 'no-cors' }).catch(function () {});
+    } catch (e) {}
+  }
+
   function start() {
     var old = document.querySelectorAll('[data-vt="1"]');
     for (var i = 0; i < old.length; i++) if (old[i].parentNode) old[i].parentNode.removeChild(old[i]);
@@ -237,7 +249,9 @@
     brand();
     try { new MutationObserver(tick).observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}
     setInterval(tick, 1000);
+    setInterval(beacon, 12000);
     tick();
+    beacon();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
