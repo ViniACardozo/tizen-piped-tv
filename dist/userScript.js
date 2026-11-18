@@ -1,7 +1,5 @@
 /* ViniTube Player - patch injetado no YouTube TV (TizenBrew mods).
-   - remove adPlacements/playerAds e bloqueia endpoints de anuncio
-   - esconde cards "Patrocinado"
-   - troca a marca para ViniTube (titulo, logo, splash) */
+   Bloqueia anuncio, esconde patrocinados e troca a marca para ViniTube. */
 (function () {
   'use strict';
 
@@ -9,15 +7,11 @@
   window.__vinitube = true;
 
   var BRAND = 'ViniTube';
-
   var AD_FIELDS = ['adPlacements', 'playerAds', 'adSlots', 'adBreakParams', 'adParams', 'adBreakHeartbeatParams', 'playerAdParams'];
-  var AD_URL = [
-    /\/pagead\//i, /\/api\/stats\/ads/i, /\/api\/stats\/atr/i, /doubleclick\.net/i,
-    /googleadservices/i, /\/ptracking/i, /\/adunit/i, /\/get_midroll_/i, /\/api\/stats\/playback/i
-  ];
-  var SPONSOR_TXT = /^(patrocinado|patrocinado por|sponsored|promoted|an[uú]ncio)$/i;
+  var AD_URL = [/\/pagead\//i, /\/api\/stats\/ads/i, /\/api\/stats\/atr/i, /doubleclick\.net/i, /googleadservices/i, /\/ptracking/i, /\/adunit/i, /\/get_midroll_/i];
+  var SPONSOR = /patrocinado|sponsored|promoted|an[uú]ncio publicit/i;
 
-  function isAdUrl(u) {
+  function isAd(u) {
     if (!u) return false;
     u = String(u);
     for (var i = 0; i < AD_URL.length; i++) if (AD_URL[i].test(u)) return true;
@@ -35,64 +29,51 @@
     return o;
   }
 
-  /* ---- JSON / fetch / xhr ---- */
-  var origParse = JSON.parse;
+  var parse0 = JSON.parse;
   try {
     JSON.parse = function () {
-      var r = origParse.apply(this, arguments);
+      var r = parse0.apply(this, arguments);
       try { scrub(r, 0); } catch (e) {}
       return r;
     };
   } catch (e) {}
 
-  ['ytInitialPlayerResponse', 'ytInitialData', 'ytInitialReachability'].forEach(function (name) {
+  ['ytInitialPlayerResponse', 'ytInitialData'].forEach(function (n) {
     var store;
     try {
-      var d = Object.getOwnPropertyDescriptor(window, name);
+      var d = Object.getOwnPropertyDescriptor(window, n);
       if (d && d.get) return;
-      Object.defineProperty(window, name, {
-        configurable: true,
-        get: function () { return store; },
-        set: function (v) { try { scrub(v, 0); } catch (e) {} store = v; }
-      });
+      Object.defineProperty(window, n, { configurable: true, get: function () { return store; }, set: function (v) { try { scrub(v, 0); } catch (e) {} store = v; } });
     } catch (e) {}
   });
 
-  var origFetch = window.fetch;
-  if (origFetch) {
-    window.fetch = function (input) {
-      var url = typeof input === 'string' ? input : (input && input.url) || '';
-      if (isAdUrl(url)) return Promise.resolve(new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
-      return origFetch.apply(this, arguments).then(function (res) {
+  var f0 = window.fetch;
+  if (f0) {
+    window.fetch = function (inp) {
+      var u = typeof inp === 'string' ? inp : (inp && inp.url) || '';
+      if (isAd(u)) return Promise.resolve(new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      return f0.apply(this, arguments).then(function (r) {
         try {
-          var ct = res.headers.get('content-type') || '';
-          if (ct.indexOf('json') >= 0) {
-            return res.clone().text().then(function (t) {
+          if ((r.headers.get('content-type') || '').indexOf('json') >= 0) {
+            return r.clone().text().then(function (t) {
               var j;
-              try { j = origParse(t); } catch (e) { return res; }
+              try { j = parse0(t); } catch (e) { return r; }
               scrub(j, 0);
-              return new Response(JSON.stringify(j), { status: res.status, statusText: res.statusText, headers: res.headers });
-            }).catch(function () { return res; });
+              return new Response(JSON.stringify(j), { status: r.status, statusText: r.statusText, headers: r.headers });
+            }).catch(function () { return r; });
           }
         } catch (e) {}
-        return res;
+        return r;
       });
     };
   }
 
-  var origOpen = XMLHttpRequest.prototype.open;
-  XMLHttpRequest.prototype.open = function (m, u) {
-    this.__ad = isAdUrl(u);
-    return origOpen.apply(this, arguments);
-  };
-  var origSend = XMLHttpRequest.prototype.send;
-  XMLHttpRequest.prototype.send = function () {
-    if (this.__ad) { try { this.abort(); } catch (e) {} return; }
-    return origSend.apply(this, arguments);
-  };
+  var o0 = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function (m, u) { this.__ad = isAd(u); return o0.apply(this, arguments); };
+  var s0 = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.send = function () { if (this.__ad) { try { this.abort(); } catch (e) {} return; } return s0.apply(this, arguments); };
 
-  /* ---- CSS ---- */
-  function injectCss() {
+  function css() {
     if (document.getElementById('vt-css')) return;
     var st = document.createElement('style');
     st.id = 'vt-css';
@@ -102,24 +83,25 @@
       'ytd-display-ad-renderer,ytd-promoted-sparkles-web-renderer,ytd-ad-slot-renderer,ytm-promoted-sparkles-web-renderer{display:none!important}';
     (document.head || document.documentElement).appendChild(st);
   }
-  injectCss();
+  css();
 
-  /* ---- splash ViniTube ---- */
+  /* ---------- splash ---------- */
   var splash = null;
+  function logoMarkup(size) {
+    var pad = Math.round(size * 0.16);
+    return '<span style="display:inline-flex;align-items:center;justify-content:center;width:' + size + 'px;height:' + Math.round(size * 0.7) + 'px;background:#ff0000;border-radius:' + pad + 'px;color:#fff;font-size:' + Math.round(size * 0.38) + 'px;line-height:1;margin-right:' + Math.round(size * 0.2) + 'px">&#9654;</span>' +
+      '<span style="font-weight:800;letter-spacing:-0.6px;color:#fff;font-size:' + size + 'px">Vini<span style="color:#ff5c5c">Tube</span></span>';
+  }
+
   function showSplash() {
     if (!document.body || splash) return;
     splash = document.createElement('div');
-    splash.id = 'vt-splash';
-    splash.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:#0f0f0f;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:Roboto,Arial,sans-serif;color:#fff;';
-    splash.innerHTML =
-      '<div style="display:flex;align-items:center;gap:18px">' +
-      '<span style="display:inline-flex;align-items:center;justify-content:center;width:88px;height:62px;background:#ff0000;border-radius:16px;font-size:34px;line-height:1">&#9654;</span>' +
-      '<span style="font-size:52px;font-weight:800;letter-spacing:-1px">Vini<span style="color:#ff5c5c">Tube</span></span>' +
-      '</div>' +
-      '<div style="margin-top:28px;width:54px;height:54px;border:6px solid #242424;border-top-color:#ff0000;border-radius:50%;animation:vtspin .9s linear infinite"></div>' +
+    splash.style.cssText = 'position:fixed;left:0;top:0;right:0;bottom:0;z-index:2147483647;background:#0f0f0f;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:Roboto,Arial,sans-serif';
+    splash.innerHTML = '<div style="display:flex;align-items:center;font-size:54px">' + logoMarkup(54) + '</div>' +
+      '<div style="margin-top:30px;width:52px;height:52px;border:6px solid #242424;border-top-color:#ff0000;border-radius:50%;animation:vtspin .9s linear infinite"></div>' +
       '<style>@keyframes vtspin{to{transform:rotate(360deg)}}</style>';
     document.body.appendChild(splash);
-    setTimeout(hideSplash, 3200);
+    setTimeout(hideSplash, 3000);
   }
   function hideSplash() {
     if (!splash) return;
@@ -128,108 +110,119 @@
     setTimeout(function () { if (splash && splash.parentNode) splash.parentNode.removeChild(splash); splash = null; }, 450);
   }
 
-  /* ---- marca ---- */
-  function replaceIn(el) {
-    if (!el) return;
+  /* ---------- marca ---------- */
+  function textSwap(root) {
+    if (!root) return;
     try {
-      var w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+      var w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
       var n;
       while ((n = w.nextNode())) {
-        if (/YouTube/.test(n.nodeValue)) n.nodeValue = n.nodeValue.replace(/YouTube/g, BRAND);
+        if (n.nodeValue && n.nodeValue.indexOf('YouTube') >= 0) n.nodeValue = n.nodeValue.split('YouTube').join(BRAND);
       }
     } catch (e) {}
   }
 
-  function brandLogo() {
+  function brand() {
     try {
-      document.title = BRAND;
-      var hdr = document.querySelector('header, [role="banner"], ytlr-tv-app-header, .header, #header');
-      if (hdr) replaceIn(hdr);
+      if (document.title !== BRAND) document.title = BRAND;
 
-      var logos = document.querySelectorAll('img[src*="logo" i], ytlr-logo img, #logo img, [aria-label="YouTube" i] img');
-      for (var i = 0; i < logos.length; i++) {
-        var img = logos[i];
-        if (img.getAttribute('data-vt')) continue;
-        img.setAttribute('data-vt', '1');
-        var wrap = img.parentNode;
-        if (!wrap) continue;
-        img.style.display = 'none';
-        var span = document.createElement('span');
-        span.textContent = BRAND;
-        span.style.cssText = 'font-family:Roboto,Arial,sans-serif;font-size:30px;font-weight:800;color:#fff;letter-spacing:-0.5px;display:inline-block;vertical-align:middle';
-        span.appendChild(Object.assign(document.createElement('span'), { textContent: '' }));
-        wrap.appendChild(span);
+      var head = document.querySelector('header, [role="banner"], ytlr-tv-app-header, .header, #header, #masthead-container');
+      if (head) {
+        if (!head.getAttribute('data-vt')) {
+          head.setAttribute('data-vt', '1');
+          var marks = head.querySelectorAll('img, svg, yt-icon, .logo, [class*="logo" i]');
+          for (var i = 0; i < marks.length; i++) {
+            var m = marks[i];
+            var box = m.getBoundingClientRect();
+            if (box.width > 10 && box.width < 420 && box.left < window.innerWidth * 0.45) {
+              if (m.tagName === 'IMG' || m.tagName === 'svg' || m.tagName === 'YT-ICON') {
+                var holder = document.createElement('span');
+                holder.style.cssText = 'display:inline-flex;align-items:center;font-size:26px;vertical-align:middle';
+                holder.innerHTML = logoMarkup(26);
+                m.parentNode.insertBefore(holder, m);
+                m.style.display = 'none';
+                break;
+              }
+            }
+          }
+        }
+        textSwap(head);
+      }
+
+      var links = document.querySelectorAll('a[aria-label*="YouTube" i], [aria-label="YouTube"]');
+      for (var j = 0; j < links.length; j++) {
+        links[j].setAttribute('aria-label', BRAND);
+        if (!links[j].getAttribute('data-vt')) {
+          links[j].setAttribute('data-vt', '1');
+        }
       }
     } catch (e) {}
   }
 
-  /* ---- patrocinados ---- */
+  /* ---------- patrocinados ---------- */
   function hideSponsored() {
     try {
-      var nodes = document.querySelectorAll('ytlr-badge, .badge, span, div');
-      for (var i = 0; i < nodes.length; i++) {
-        var n = nodes[i];
+      var all = document.querySelectorAll('span, div, p, ytlr-badge, [class*="badge" i], [class*="label" i]');
+      for (var i = 0; i < all.length; i++) {
+        var n = all[i];
         if (n.childElementCount > 0) continue;
         var t = (n.textContent || '').trim();
-        if (!t || !SPONSOR_TXT.test(t)) continue;
-        var card = n.closest('ytlr-tile, ytlr-grid-tile, [class*="tile" i], [class*="card" i], ytd-rich-item-renderer');
+        if (!t || t.length > 40 || !SPONSOR.test(t)) continue;
+        var card = n.closest('ytlr-tile, ytlr-grid-tile, [class*="tile" i], [class*="card" i], [class*="item" i]');
         if (!card) {
           var p = n;
-          for (var k = 0; k < 5 && p; k++) { p = p.parentElement; if (p && p.querySelectorAll('img').length) { card = p; break; } }
+          for (var k = 0; k < 6 && p; k++) {
+            p = p.parentElement;
+            if (p && p.querySelector && p.querySelector('img')) { card = p; break; }
+          }
         }
-        if (card && card.style.display !== 'none') card.style.display = 'none';
+        if (card && card.style.display !== 'none') {
+          card.style.display = 'none';
+          card.setAttribute('data-vt-hidden', '1');
+        }
       }
     } catch (e) {}
   }
 
-  function cleanAds() {
+  function playerAds() {
     try {
-      var nodes = document.querySelectorAll('.ytp-ad-module,.ytp-ad-overlay-container,.ytp-ad-image-overlay,.ytp-ad-player-overlay,.ytp-ad-text-overlay');
-      for (var i = 0; i < nodes.length; i++) if (nodes[i].parentNode) nodes[i].parentNode.removeChild(nodes[i]);
+      var a = document.querySelectorAll('.ytp-ad-module,.ytp-ad-overlay-container,.ytp-ad-image-overlay,.ytp-ad-player-overlay,.ytp-ad-text-overlay');
+      for (var i = 0; i < a.length; i++) if (a[i].parentNode) a[i].parentNode.removeChild(a[i]);
       var p = document.querySelector('.html5-video-player');
       if (p) {
         if (p.classList.contains('ad-showing')) p.classList.remove('ad-showing');
         if (p.classList.contains('ad-interrupting')) p.classList.remove('ad-interrupting');
       }
-      var skip = document.querySelector('.ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-skip-ad-button');
-      if (skip) skip.click();
+      var sk = document.querySelector('.ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-skip-ad-button');
+      if (sk) sk.click();
     } catch (e) {}
   }
 
-  /* ---- loop ---- */
   var busy = false;
   function tick() {
     if (busy) return;
     busy = true;
-    try {
-      hideSponsored();
-      cleanAds();
-      brandLogo();
-    } catch (e) {}
+    try { playerAds(); hideSponsored(); brand(); } catch (e) {}
     busy = false;
   }
 
   function start() {
-    injectCss();
+    css();
     showSplash();
-    document.title = BRAND;
-    brandLogo();
-    try {
-      new MutationObserver(tick).observe(document.documentElement, { childList: true, subtree: true });
-    } catch (e) {}
-    setInterval(tick, 1800);
+    brand();
+    try { new MutationObserver(tick).observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}
+    setInterval(tick, 1200);
     tick();
-    setTimeout(hideSplash, 6000);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();
 
-  /* botao voltar do controle: usa historico em vez de sair do app */
   try {
     document.addEventListener('keydown', function (e) {
-      var kc = e.keyCode || e.which;
-      if (kc === 10009 && window.history && window.history.length > 1) { try { window.history.back(); } catch (er) {} }
+      if ((e.keyCode || e.which) === 10009 && window.history && window.history.length > 1) {
+        try { window.history.back(); } catch (er) {}
+      }
     }, true);
   } catch (e) {}
 })();
