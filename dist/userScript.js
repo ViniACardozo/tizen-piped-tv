@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  var VER = '2.5.2';
+  var VER = '2.5.3';
   if (window.__vtVer === VER) return;
   window.__vtVer = VER;
   window.__vinitube = true;
