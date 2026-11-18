@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  var VER = '2.5.3';
+  var VER = '2.5.4';
   if (window.__vtVer === VER) return;
   window.__vtVer = VER;
   window.__vinitube = true;
@@ -11,7 +11,7 @@
   var BRAND = 'ViniTube';
   var AD_FIELDS = ['adPlacements', 'playerAds', 'adSlots', 'adBreakParams', 'adParams', 'adBreakHeartbeatParams', 'playerAdParams'];
   var AD_URL = [/\/pagead\//i, /\/api\/stats\/ads/i, /\/api\/stats\/atr/i, /doubleclick\.net/i, /googleadservices/i, /\/ptracking/i, /\/adunit/i, /\/get_midroll_/i];
-  var SPONSOR = /patrocinado|sponsored|promoted/i;
+  var SPONSOR = /patrocinado|sponsored|promovido|promoted|an[uú]ncio/i;
 
   function isAd(u) {
     if (!u) return false;
@@ -167,23 +167,33 @@
   function sponsored() {
     try {
       var vw = window.innerWidth || 1920;
+      var vh = window.innerHeight || 1080;
       var nodes = document.querySelectorAll('span, div, p, yt-formatted-string');
       for (var i = 0; i < nodes.length; i++) {
         var n = nodes[i];
         if (n.childElementCount > 0) continue;
         var t = (n.textContent || '').trim();
-        if (!t || t.length < 5) continue;
-        if (!SPONSOR.test(t.slice(0, 45))) continue;
+        if (!t || t.length > 45) continue;
+        if (!SPONSOR.test(t)) continue;
         var p = n, hit = null;
-        for (var k = 0; k < 12 && p; k++) {
+        for (var k = 0; k < 14 && p; k++) {
           p = p.parentElement;
           if (!p || p === document.body || p === document.documentElement) break;
           var r = p.getBoundingClientRect();
-          if (r.width >= vw * 0.22 && p.querySelector('img, video')) { hit = p; break; }
+          if (r.width < vw * 0.16 || r.height < vh * 0.1) continue;
+          if (p.querySelectorAll('img, video').length > 3) break;
+          hit = p;
+          break;
         }
-        if (hit && hit.style.display !== 'none') {
-          hit.style.display = 'none';
-          hit.setAttribute('data-vt-hidden', '1');
+        var done = hit;
+        if (!done) {
+          var q = n.parentElement;
+          for (var j = 0; j < 3 && q && q !== document.body; j++) q = q.parentElement;
+          if (q && q !== document.body) done = q;
+        }
+        if (done && done.style.display !== 'none') {
+          done.style.display = 'none';
+          done.setAttribute('data-vt-hidden', '1');
         }
       }
     } catch (e) {}
