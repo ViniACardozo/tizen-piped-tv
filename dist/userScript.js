@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  var VER = '2.5.12';
+  var VER = '2.5.14';
   function vnum(v) { var p = v.split('.'); return Number(p[0]) * 1000000 + Number(p[1]) * 1000 + Number(p[2] || 0); }
   if ((window.__vtNum || 0) >= vnum(VER)) return;
   window.__vtNum = vnum(VER);
