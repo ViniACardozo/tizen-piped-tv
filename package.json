@@ -1,7 +1,7 @@
 {
   "name": "tizen-piped-tv",
   "appName": "ViniTube",
-  "version": "2.5.12",
+  "version": "2.5.13",
   "description": "YouTube TV na Samsung com bloqueio de anuncio injetado antes do player. Modulo TizenBrew (mods).",
   "packageType": "mods",
   "websiteURL": "https://www.youtube.com/tv",
